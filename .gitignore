@@ -9,3 +9,11 @@ flask-app/.env
 flask-app/venv/
 flask-app/__pycache__/
 flask-app/*.pyc
+flask-app/routes/__pycache__/__init__.cpython-311.pyc
+flask-app/routes/__pycache__/analytics.cpython-311.pyc
+flask-app/routes/__pycache__/authors.cpython-311.pyc
+flask-app/routes/__pycache__/ingress.cpython-311.pyc
+flask-app/routes/__pycache__/languages.cpython-311.pyc
+flask-app/routes/__pycache__/posts.cpython-311.pyc
+flask-app/routes/__pycache__/stats.cpython-311.pyc
+flask-app/libs/__pycache__/database.cpython-311.pyc

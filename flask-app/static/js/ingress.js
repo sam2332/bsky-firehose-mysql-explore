@@ -315,7 +315,7 @@ class IngressMonitor {
             authorsList.innerHTML = data.top_active.map(author => `
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <div>
-                        <strong>@${author.handle}</strong>
+                        <strong><a target="_blank" href="http://${author.handle}">@${author.handle}</a></strong>
                         <br>
                         <small class="text-muted">${author.display_name || 'No display name'}</small>
                     </div>
