@@ -1,17 +1,26 @@
-import sqlite3
+import mysql.connector
 import json
 from datetime import datetime
 
+# Database configuration
+MYSQL_CONFIG = {
+    'host': 'mariadb',
+    'database': 'bsky_db',
+    'user': 'bsky_user',
+    'password': 'bsky_password',
+    'port': 3306
+}
+
 def view_posts(limit=10):
     """View recent posts from the database"""
-    conn = sqlite3.connect('bsky_posts.db')
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     
     cursor.execute('''
         SELECT author_did, author_handle, text, created_at, language, post_uri, saved_at 
         FROM posts 
         ORDER BY saved_at DESC 
-        LIMIT ?
+        LIMIT %s
     ''', (limit,))
     
     posts = cursor.fetchall()
@@ -31,7 +40,7 @@ def view_posts(limit=10):
 
 def get_stats():
     """Get database statistics"""
-    conn = sqlite3.connect('bsky_posts.db')
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     
     cursor.execute('SELECT COUNT(*) FROM posts')
@@ -45,24 +54,24 @@ def get_stats():
     
     conn.close()
     
-    print(f"=== Database Statistics ===")
+    print("=== Database Statistics ===")
     print(f"Total posts: {total_posts}")
     print(f"Unique authors: {unique_authors}")
-    print(f"\nTop languages:")
+    print("\nTop languages:")
     for lang, count in language_stats:
         print(f"  {lang or 'Unknown'}: {count}")
 
 def search_posts(search_term, limit=10):
     """Search posts by text content"""
-    conn = sqlite3.connect('bsky_posts.db')
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     
     cursor.execute('''
         SELECT author_did, author_handle, text, created_at, language 
         FROM posts 
-        WHERE text LIKE ? 
+        WHERE text LIKE %s 
         ORDER BY saved_at DESC 
-        LIMIT ?
+        LIMIT %s
     ''', (f'%{search_term}%', limit))
     
     posts = cursor.fetchall()

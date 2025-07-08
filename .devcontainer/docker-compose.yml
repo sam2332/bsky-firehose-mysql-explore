@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ../..:/workspaces:cached
+    command: sleep infinity
+    networks:
+      - bsky_network
+    depends_on:
+      - mariadb
+    environment:
+      - DATABASE_URL=mysql://bsky_user:bsky_password@mariadb:3306/bsky_db
+
+  mariadb:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: bsky_db
+      MYSQL_USER: bsky_user
+      MYSQL_PASSWORD: bsky_password
+    volumes:
+      - ../db:/var/lib/mysql
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "3306:3306"
+    networks:
+      - bsky_network
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mariadb
+      PMA_USER: bsky_user
+      PMA_PASSWORD: bsky_password
+      MYSQL_ROOT_PASSWORD: rootpassword
+    ports:
+      - "8080:80"
+    networks:
+      - bsky_network
+    depends_on:
+      - mariadb
+
+networks:
+  bsky_network:
+    driver: bridge

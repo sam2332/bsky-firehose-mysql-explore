@@ -1,9 +1,18 @@
-import sqlite3
+import mysql.connector
 from datetime import datetime
+
+# Database configuration
+MYSQL_CONFIG = {
+    'host': 'mariadb',
+    'database': 'bsky_db',
+    'user': 'bsky_user',
+    'password': 'bsky_password',
+    'port': 3306
+}
 
 def view_cache_stats():
     """View DID cache statistics"""
-    conn = sqlite3.connect('bsky_posts.db')
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     
     # Total cached DIDs
@@ -21,7 +30,7 @@ def view_cache_stats():
     # Recent resolutions (last 24 hours)
     cursor.execute('''
         SELECT COUNT(*) FROM did_cache 
-        WHERE resolved_at > datetime('now', '-1 day')
+        WHERE resolved_at > DATE_SUB(NOW(), INTERVAL 1 DAY)
     ''')
     recent = cursor.fetchone()[0]
     
@@ -35,14 +44,14 @@ def view_cache_stats():
 
 def view_recent_resolutions(limit=20):
     """View recent DID resolutions"""
-    conn = sqlite3.connect('bsky_posts.db')
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     
     cursor.execute('''
         SELECT did, handle, resolved_at, failed_attempts
         FROM did_cache 
         ORDER BY resolved_at DESC 
-        LIMIT ?
+        LIMIT %s
     ''', (limit,))
     
     results = cursor.fetchall()
@@ -55,7 +64,7 @@ def view_recent_resolutions(limit=20):
 
 def clear_failed_cache():
     """Clear failed resolution attempts to allow retries"""
-    conn = sqlite3.connect('bsky_posts.db')
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     
     cursor.execute('DELETE FROM did_cache WHERE handle IS NULL')
@@ -67,13 +76,13 @@ def clear_failed_cache():
 
 def search_cache(search_term):
     """Search cache by handle or DID"""
-    conn = sqlite3.connect('bsky_posts.db')
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     
     cursor.execute('''
         SELECT did, handle, resolved_at, failed_attempts
         FROM did_cache 
-        WHERE did LIKE ? OR handle LIKE ?
+        WHERE did LIKE %s OR handle LIKE %s
         ORDER BY resolved_at DESC
     ''', (f'%{search_term}%', f'%{search_term}%'))
     
@@ -87,7 +96,7 @@ def search_cache(search_term):
 
 def rebuild_cache_from_posts():
     """Rebuild cache from existing posts data"""
-    conn = sqlite3.connect('bsky_posts.db')
+    conn = mysql.connector.connect(**MYSQL_CONFIG)
     cursor = conn.cursor()
     
     # Get unique DIDs with handles from posts
@@ -101,8 +110,8 @@ def rebuild_cache_from_posts():
     
     for did, handle in posts_data:
         cursor.execute('''
-            INSERT OR IGNORE INTO did_cache (did, handle, resolved_at, failed_attempts)
-            VALUES (?, ?, CURRENT_TIMESTAMP, 0)
+            INSERT IGNORE INTO did_cache (did, handle, resolved_at, failed_attempts)
+            VALUES (%s, %s, NOW(), 0)
         ''', (did, handle))
     
     conn.commit()
