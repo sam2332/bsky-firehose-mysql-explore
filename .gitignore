@@ -3,3 +3,9 @@ bsky_posts.db
 db/
 errors/
 word_clouds/
+
+# Flask app
+flask-app/.env
+flask-app/venv/
+flask-app/__pycache__/
+flask-app/*.pyc

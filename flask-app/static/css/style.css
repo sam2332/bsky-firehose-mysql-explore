@@ -190,16 +190,65 @@ body {
 .modal-content {
     border-radius: 0.5rem;
     border: none;
+    background-color: #fff;
+    color: #212529;
 }
 
 .modal-header {
     border-bottom: 1px solid #e9ecef;
     border-radius: 0.5rem 0.5rem 0 0;
+    background-color: #fff;
+    color: #212529;
+}
+
+.modal-body {
+    background-color: #fff;
+    color: #212529;
 }
 
 .modal-footer {
     border-top: 1px solid #e9ecef;
     border-radius: 0 0 0.5rem 0.5rem;
+    background-color: #fff;
+}
+
+.modal-title {
+    color: #212529;
+}
+
+/* Additional modal fixes */
+.modal-backdrop {
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal .bg-light {
+    background-color: #f8f9fa !important;
+    color: #212529 !important;
+}
+
+.modal code {
+    background-color: #f8f9fa;
+    color: #d63384;
+    padding: 0.2rem 0.4rem;
+    border-radius: 0.25rem;
+    font-size: 0.875em;
+}
+
+.modal .list-unstyled li {
+    margin-bottom: 0.5rem;
+}
+
+.modal .border {
+    border-color: #dee2e6 !important;
+}
+
+/* Ensure modal is always on top and visible */
+.modal {
+    z-index: 1050;
+}
+
+.modal.show .modal-dialog {
+    transform: none;
 }
 
 /* Responsive adjustments */
@@ -252,4 +301,144 @@ body {
         border-color: #0d6efd;
         color: #fff;
     }
+    
+    /* Keep modals light themed for better readability */
+    .modal-content,
+    .modal-header,
+    .modal-body,
+    .modal-footer {
+        background-color: #fff !important;
+        color: #212529 !important;
+    }
+    
+    .modal-title {
+        color: #212529 !important;
+    }
+}
+
+/* Analytics-specific styles */
+.trending-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.trending-item {
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    background-color: rgba(13, 110, 253, 0.05);
+    border: 1px solid rgba(13, 110, 253, 0.1);
+}
+
+.trending-item:hover {
+    background-color: rgba(13, 110, 253, 0.1);
+}
+
+.progress {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.badge-sm {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.4rem;
+}
+
+.chart-container {
+    position: relative;
+    height: 300px;
+}
+
+.analytics-stats-card {
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.analytics-stats-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.network-analysis-item {
+    padding: 0.25rem 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.network-analysis-item:last-child {
+    border-bottom: none;
+}
+
+.toast {
+    z-index: 1050;
+}
+
+/* Political sentiment colors */
+.political-left {
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+}
+
+.political-right {
+    background: linear-gradient(135deg, #dc3545 0%, #b02a37 100%);
+}
+
+/* Loading animations for analytics */
+.analytics-loading {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: loading 1.5s infinite;
+    border-radius: 0.25rem;
+    height: 20px;
+    margin-bottom: 0.5rem;
+}
+
+@keyframes loading {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* Responsive chart containers */
+@media (max-width: 768px) {
+    .chart-container {
+        height: 250px;
+    }
+    
+    .trending-list {
+        max-height: 200px;
+    }
+    
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+}
+
+/* Political phrase styling */
+.trending-phrase-item {
+    padding: 0.4rem;
+    border-radius: 0.25rem;
+    background-color: rgba(255, 193, 7, 0.1);
+    border: 1px solid rgba(255, 193, 7, 0.2);
+    font-size: 0.875rem;
+}
+
+.trending-phrase-item:hover {
+    background-color: rgba(255, 193, 7, 0.15);
+}
+
+/* Political indicators styling */
+.political-badge {
+    font-size: 0.7rem;
+    margin-left: 0.25rem;
+}
+
+.political-phrases {
+    font-style: italic;
+    border-left: 3px solid #dee2e6;
+    padding-left: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.political-phrases small {
+    color: #6c757d !important;
 }

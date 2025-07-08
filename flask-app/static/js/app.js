@@ -215,6 +215,32 @@ class BlueskyExplorer {
         const expandButton = isTextTruncated ? 
             `<button class="expand-post" data-post-id="${post.id}">Show more</button>` : '';
 
+        // Political indicators
+        let politicalBadge = '';
+        let politicalPhrases = '';
+        
+        if (post.political_leaning && post.political_leaning !== 'neutral') {
+            const badgeClass = post.political_leaning === 'right_wing' ? 'bg-danger' : 'bg-primary';
+            const badgeText = post.political_leaning === 'right_wing' ? 'Conservative' : 'Progressive';
+            politicalBadge = `<span class="badge ${badgeClass} political-badge">${badgeText}</span>`;
+            
+            // Show detected phrases
+            if (post.political_phrases) {
+                const phrases = [
+                    ...post.political_phrases.right_wing,
+                    ...post.political_phrases.left_wing
+                ].slice(0, 2); // Show max 2 phrases
+                
+                if (phrases.length > 0) {
+                    politicalPhrases = `
+                        <div class="political-phrases mt-1">
+                            <small class="text-muted">Contains: ${phrases.map(phrase => `"${phrase}"`).join(', ')}</small>
+                        </div>
+                    `;
+                }
+            }
+        }
+
         return `
             <div class="card post-card">
                 <div class="card-body">
@@ -228,12 +254,14 @@ class BlueskyExplorer {
                                 <i class="fas fa-clock me-1"></i>
                                 ${post.created_at_display}
                                 ${languageBadge}
+                                ${politicalBadge}
                             </div>
                         </div>
                     </div>
                     <div class="post-text">
                         ${this.escapeHtml(post.text)}
                         ${expandButton}
+                        ${politicalPhrases}
                     </div>
                     <div class="post-actions">
                         <small class="text-muted">

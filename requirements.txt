@@ -14,7 +14,7 @@ requests>=2.31.0
 # Development and analysis
 jupyter>=1.0.0
 pandas>=2.0.0
-matplotlib>=3.7.0
+matplotlib>=3.7.0s
 seaborn>=0.12.0
 
 # Optional: for better performance
