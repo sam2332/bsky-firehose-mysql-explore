@@ -7,7 +7,10 @@ from datetime import datetime
 from atproto_client.models import get_or_create
 from atproto import CAR, models, IdResolver
 from atproto_firehose import FirehoseSubscribeReposClient, parse_subscribe_repos_message
-
+def lprint(string, *args, **kwargs):
+    """Prints a message with a timestamp"""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    #print(f"[{timestamp}] {string}", *args, **kwargs)
 # Database configuration
 MYSQL_CONFIG = {
     'host': 'mariadb',
@@ -45,13 +48,13 @@ def init_database():
         cache_exists = cursor.fetchone()
         
         if posts_exists and cache_exists:
-            print("✅ Connected to MySQL database successfully")
+            lprint("✅ Connected to MySQL database successfully")
         else:
-            print("⚠️ Warning: Expected tables not found in database")
+            lprint("⚠️ Warning: Expected tables not found in database")
         
         conn.close()
     except mysql.connector.Error as e:
-        print(f"❌ Failed to connect to MySQL database: {e}")
+        lprint(f"❌ Failed to connect to MySQL database: {e}")
         raise
 
 def get_cached_handle(did):
@@ -64,7 +67,7 @@ def get_cached_handle(did):
         conn.close()
         return result[0] if result else None
     except mysql.connector.Error as e:
-        print(f"Error getting cached handle for {did}: {e}")
+        lprint(f"Error getting cached handle for {did}: {e}")
         return None
 
 def cache_handle(did, handle):
@@ -83,7 +86,7 @@ def cache_handle(did, handle):
         conn.commit()
         conn.close()
     except mysql.connector.Error as e:
-        print(f"Error caching handle for {did}: {e}")
+        lprint(f"Error caching handle for {did}: {e}")
 
 def mark_resolution_failed(did):
     """Mark that resolution failed for this DID"""
@@ -107,7 +110,7 @@ def mark_resolution_failed(did):
         conn.commit()
         conn.close()
     except mysql.connector.Error as e:
-        print(f"Error marking resolution failed for {did}: {e}")
+        lprint(f"Error marking resolution failed for {did}: {e}")
 
 def should_retry_resolution(did):
     """Check if we should retry resolution for a failed DID"""
@@ -134,7 +137,7 @@ def should_retry_resolution(did):
         from datetime import timedelta
         return datetime.now() - resolved_at > timedelta(hours=1)
     except mysql.connector.Error as e:
-        print(f"Error checking retry status for {did}: {e}")
+        lprint(f"Error checking retry status for {did}: {e}")
         return True  # Default to retry on error
 
 # Global queues for thread communication
@@ -161,9 +164,9 @@ def update_multiple_posts_handle(post_ids, handle):
         conn.commit()
         conn.close()
         
-        print(f"Updated {len(post_ids)} posts with handle @{handle}")
+        lprint(f"Updated {len(post_ids)} posts with handle @{handle}")
     except mysql.connector.Error as e:
-        print(f"Error updating multiple posts: {e}")
+        lprint(f"Error updating multiple posts: {e}")
 
 def update_post_handle(post_id, handle):
     """Update a single post's handle in the database"""
@@ -174,7 +177,7 @@ def update_post_handle(post_id, handle):
         conn.commit()
         conn.close()
     except mysql.connector.Error as e:
-        print(f"Error updating post handle: {e}")
+        lprint(f"Error updating post handle: {e}")
 
 def save_post_to_db(author_did, author_handle, text, created_at, language, post_uri, raw_data):
     try:
@@ -202,7 +205,7 @@ def save_post_to_db(author_did, author_handle, text, created_at, language, post_
         conn.close()
         return post_id
     except mysql.connector.Error as e:
-        print(f"Error saving post to database: {e}")
+        lprint(f"Error saving post to database: {e}")
         return None
 
 def resolve_handle_from_did_sync(did):
@@ -238,13 +241,13 @@ def resolve_handle_from_did_sync(did):
         return handle
         
     except Exception as e:
-        print(f"Failed to resolve handle for {did}: {e}")
+        lprint(f"Failed to resolve handle for {did}: {e}")
         return None
 
 def did_resolution_worker():
     """Background worker thread for DID resolution"""
     worker_id = threading.current_thread().ident
-    print(f"DID resolution worker {worker_id} started")
+    lprint(f"DID resolution worker {worker_id} started")
     
     while True:
         try:
@@ -252,15 +255,15 @@ def did_resolution_worker():
             did, post_ids = resolution_queue.get(timeout=1)
             
             if did is None:  # Shutdown signal
-                print(f"Worker {worker_id} shutting down")
+                lprint(f"Worker {worker_id} shutting down")
                 break
                 
-            print(f"Worker {worker_id} processing DID: {did} for {len(post_ids)} posts")
+            lprint(f"Worker {worker_id} processing DID: {did} for {len(post_ids)} posts")
             
             # Check cache first
             cached_handle = get_cached_handle(did)
             if cached_handle is not None:
-                print(f"Worker {worker_id} found cached handle: {did} -> @{cached_handle}")
+                lprint(f"Worker {worker_id} found cached handle: {did} -> @{cached_handle}")
                 # Batch update all posts with this DID
                 update_queue.put(('update_posts_batch', post_ids, cached_handle))
                 resolution_queue.task_done()
@@ -268,12 +271,12 @@ def did_resolution_worker():
             
             # Check if we should retry failed resolutions
             if not should_retry_resolution(did):
-                print(f"Worker {worker_id} skipping retry for {did} (too many failures)")
+                lprint(f"Worker {worker_id} skipping retry for {did} (too many failures)")
                 resolution_queue.task_done()
                 continue
             
             # Try to resolve from network
-            print(f"Worker {worker_id} attempting network resolution for {did}")
+            lprint(f"Worker {worker_id} attempting network resolution for {did}")
             handle = resolve_handle_from_did_sync(did)
             
             # Queue database updates
@@ -281,17 +284,17 @@ def did_resolution_worker():
                 update_queue.put(('cache_success', did, handle))
                 # Batch update all posts for this DID
                 update_queue.put(('update_posts_batch', post_ids, handle))
-                print(f"Worker {worker_id} resolved and cached: {did} -> @{handle} (updating {len(post_ids)} posts)")
+                lprint(f"Worker {worker_id} resolved and cached: {did} -> @{handle} (updating {len(post_ids)} posts)")
             else:
                 update_queue.put(('cache_failure', did))
-                print(f"Worker {worker_id} failed to resolve handle for {did}")
+                lprint(f"Worker {worker_id} failed to resolve handle for {did}")
             
             resolution_queue.task_done()
             
         except queue.Empty:
             continue
         except Exception as e:
-            print(f"Error in DID resolution worker {worker_id}: {e}")
+            lprint(f"Error in DID resolution worker {worker_id}: {e}")
             resolution_queue.task_done()
 
 def process_database_updates():
@@ -319,7 +322,7 @@ def process_database_updates():
             
     except queue.Empty:
         if updates_processed > 0:
-            print(f"Processed {updates_processed} database updates")
+            lprint(f"Processed {updates_processed} database updates")
         pass  # No more updates to process
 
 def process_backlog():
@@ -352,16 +355,16 @@ def process_backlog():
             for did, post_ids_str, _ in backlog_items:
                 post_ids = [int(pid) for pid in post_ids_str.split(',')]
                 resolution_queue.put((did, post_ids))
-                print(f"Backlog processor: Queued {did} with {len(post_ids)} posts")
+                lprint(f"Backlog processor: Queued {did} with {len(post_ids)} posts")
                 
                 # Don't overwhelm the queue
                 if resolution_queue.qsize() > 50:
                     break
                     
         except mysql.connector.Error as e:
-            print(f"Database error in backlog processor: {e}")
+            lprint(f"Database error in backlog processor: {e}")
         except Exception as e:
-            print(f"Error in backlog processor: {e}")
+            lprint(f"Error in backlog processor: {e}")
 
 # Initialize the database
 init_database()
@@ -374,12 +377,12 @@ for i in range(num_workers):
     worker.start()
     workers.append(worker)
 
-print(f"Started {num_workers} DID resolution worker threads")
+lprint(f"Started {num_workers} DID resolution worker threads")
 
 # Start backlog processor thread
 backlog_thread = threading.Thread(target=process_backlog, daemon=True)
 backlog_thread.start()
-print("Started backlog processor thread")
+lprint("Started backlog processor thread")
 
 # Track DIDs being resolved to batch requests
 pending_resolutions = {}  # did -> list of post_ids
@@ -413,7 +416,7 @@ def on_message_handler(message):
         # Sync cached handles to posts
         synced = sync_cached_handles_to_posts()
         
-        print(f"Stats: {posts_processed} posts processed, {resolutions_queued} resolutions queued, "
+        lprint(f"Stats: {posts_processed} posts processed, {resolutions_queued} resolutions queued, "
               f"Resolution queue: {queue_size}, Update queue: {update_queue_size}")
         last_stats_time = current_time
     
@@ -461,13 +464,13 @@ def on_message_handler(message):
                             resolutions_queued += 1
                     
                     handle_display = cached_handle or "resolving..."
-                    print(f"Saved post from @{handle_display}: {text[:50]}{'...' if len(text) > 50 else ''}")
+                    lprint(f"Saved post from @{handle_display}: {text[:50]}{'...' if len(text) > 50 else ''}")
             except Exception as e:
                 total_errors += 1
                 error_filename = f'errors/{total_errors}.json'
                 with open(error_filename, 'w') as f:
                     json.dump(raw, f, indent=2, cls=JSONExtra)
-                print(f"Error processing message: {e}, saved to {error_filename}")
+                lprint(f"Error processing message: {e}, saved to {error_filename}")
 
 def sync_cached_handles_to_posts():
     """Sync cached handles to posts that haven't been updated yet"""
@@ -488,18 +491,18 @@ def sync_cached_handles_to_posts():
         conn.close()
         
         if updated_count > 0:
-            print(f"🔄 Synced {updated_count} posts with cached handles")
+            lprint(f"🔄 Synced {updated_count} posts with cached handles")
         
         return updated_count
     except mysql.connector.Error as e:
-        print(f"Error syncing cached handles: {e}")
+        lprint(f"Error syncing cached handles: {e}")
         return 0
 
 try:
     client.start(on_message_handler)
 finally:
     # Shutdown worker threads
-    print("Shutting down worker threads...")
+    lprint("Shutting down worker threads...")
     for _ in workers:
         resolution_queue.put((None, None))  # Shutdown signal
     for worker in workers:

@@ -1,30 +1,24 @@
 from flask import jsonify
-from libs.database import get_db_connection
+from libs.database import get_shared_database_class
 def register_routes(app):
     
     @app.route('/api/languages')
     def get_languages():
         """Get available languages for filtering"""
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'error': 'Database connection failed'}), 500
-        
-        try:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT language, COUNT(*) as count 
-                FROM posts 
-                WHERE language IS NOT NULL 
-                GROUP BY language 
-                ORDER BY count DESC
-            ''')
-            
-            languages = [{'code': lang, 'count': count, 'name': lang.upper() if lang else 'Unknown'} 
-                        for lang, count in cursor.fetchall()]
-            
-            conn.close()
-            return jsonify({'languages': languages})
-            
-        except Exception as e:
-            conn.close()
-            return jsonify({'error': str(e)}), 500
+        with get_shared_database_class() as db:
+            try:
+                languages = db.fetch_all('''
+                    SELECT language, COUNT(*) as count 
+                    FROM posts 
+                    WHERE language IS NOT NULL 
+                    GROUP BY language 
+                    ORDER BY count DESC
+                ''')
+                
+                languages = [{'code': lang['language'], 'count': lang['count'], 'name': lang['language'].upper() if lang['language'] else 'Unknown'} 
+                            for lang in languages]
+                
+                return jsonify({'languages': languages})
+                
+            except Exception as e:
+                return jsonify({'error': str(e)}), 500

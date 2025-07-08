@@ -1,16 +1,68 @@
-// Bluesky Analytics JavaScript
+// Bluesky Analytics JavaScript with Socket.IO support
 
 class BlueskyAnalytics {
     constructor() {
         this.charts = {};
         this.autoRefreshInterval = null;
         this.autoRefreshEnabled = false;
+        this.socket = null;
         this.init();
     }
 
     init() {
+        this.setupSocketIO();
         this.setupEventListeners();
         this.loadAllData();
+    }
+
+    setupSocketIO() {
+        // Initialize Socket.IO connection
+        this.socket = io();
+        
+        // Socket event handlers
+        this.socket.on('connect', () => {
+            console.log('Connected to analytics server');
+            this.socket.emit('connect_analytics');
+        });
+
+        this.socket.on('disconnect', () => {
+            console.log('Disconnected from analytics server');
+        });
+
+        this.socket.on('analytics_status', (data) => {
+            console.log('Analytics status:', data.message);
+        });
+
+        this.socket.on('analytics_update', (data) => {
+            console.log('Received real-time analytics update');
+            this.updateAnalyticsData(data);
+        });
+
+        this.socket.on('analytics_error', (data) => {
+            console.error('Analytics error:', data.message);
+            this.showError(data.message);
+        });
+    }
+
+    updateAnalyticsData(data) {
+        // Update all analytics sections with real-time data
+        if (data.political_sentiment) {
+            this.updatePoliticalSentiment(data.political_sentiment);
+        }
+        if (data.trending_topics) {
+            this.updateTrendingTopics(data.trending_topics);
+        }
+        if (data.user_behavior) {
+            this.updateUserBehavior(data.user_behavior);
+        }
+        if (data.content_analysis) {
+            this.updateContentAnalysis(data.content_analysis);
+        }
+        if (data.network_analysis) {
+            this.updateNetworkAnalysis(data.network_analysis);
+        }
+        
+        this.updateLastUpdated();
     }
 
     setupEventListeners() {
@@ -47,108 +99,177 @@ class BlueskyAnalytics {
 
     async loadPoliticalSentiment() {
         try {
-            const response = await fetch('/api/political-sentiment');
+            const response = await fetch('/api/analytics/political-sentiment');
             const data = await response.json();
-
-            if (data.error) {
-                throw new Error(data.error);
-            }
-
-            // Update stats cards
-            document.getElementById('rightWingPosts').textContent = this.formatNumber(data.right_wing.posts);
-            document.getElementById('rightWingUsers').textContent = this.formatNumber(data.right_wing.unique_authors);
-            document.getElementById('leftWingPosts').textContent = this.formatNumber(data.left_wing.posts);
-            document.getElementById('leftWingUsers').textContent = this.formatNumber(data.left_wing.unique_authors);
-
-            // Create timeline chart
-            this.createPoliticalTimelineChart(data.timeline);
-
-            // Display trending political phrases
-            this.displayTrendingPoliticalPhrases(data.trending_phrases || []);
-
+            this.updatePoliticalSentiment(data);
         } catch (error) {
             console.error('Error loading political sentiment:', error);
-            this.showError('Failed to load political sentiment data');
         }
     }
 
     async loadTrendingTopics() {
         try {
             const period = document.getElementById('trendingPeriod').value;
-            const response = await fetch(`/api/trending-topics?period=${period}`);
+            const response = await fetch(`/api/analytics/trending-topics?period=${period}`);
             const data = await response.json();
-
-            if (data.error) {
-                throw new Error(data.error);
-            }
-
-            this.displayTrendingList('trendingKeywords', data.trending_keywords, 'word');
-            this.displayTrendingList('trendingHashtags', data.trending_hashtags, 'hashtag', '#');
-            this.displayTrendingList('trendingMentions', data.trending_mentions, 'mention', '@');
-
+            this.updateTrendingTopics(data);
         } catch (error) {
             console.error('Error loading trending topics:', error);
-            this.showError('Failed to load trending topics');
         }
     }
 
     async loadUserBehavior() {
         try {
-            const response = await fetch('/api/user-behavior');
+            const response = await fetch('/api/analytics/user-behavior');
             const data = await response.json();
-
-            if (data.error) {
-                throw new Error(data.error);
-            }
-
-            this.displayTopPosters(data.top_posters);
-            this.createHourlyActivityChart(data.hourly_activity);
-
+            this.updateUserBehavior(data);
         } catch (error) {
             console.error('Error loading user behavior:', error);
-            this.showError('Failed to load user behavior data');
         }
     }
 
     async loadContentAnalysis() {
         try {
-            const response = await fetch('/api/content-analysis');
+            const response = await fetch('/api/analytics/content-analysis');
             const data = await response.json();
-
-            if (data.error) {
-                throw new Error(data.error);
-            }
-
-            this.createLinkAnalysisChart(data.link_analysis);
-            this.createSentimentChart(data.sentiment_analysis);
-            this.displayLanguageLengthAnalysis(data.length_by_language);
-
+            this.updateContentAnalysis(data);
         } catch (error) {
             console.error('Error loading content analysis:', error);
-            this.showError('Failed to load content analysis data');
         }
     }
 
     async loadNetworkAnalysis() {
         try {
-            const response = await fetch('/api/network-analysis');
+            const response = await fetch('/api/analytics/network-analysis');
             const data = await response.json();
-
-            if (data.error) {
-                throw new Error(data.error);
-            }
-
-            this.displayMostMentioned(data.most_mentioned);
-            this.displayConcurrentPosters(data.concurrent_posters);
-
+            this.updateNetworkAnalysis(data);
         } catch (error) {
             console.error('Error loading network analysis:', error);
-            this.showError('Failed to load network analysis data');
+        }
+    }
+
+    updatePoliticalSentiment(data) {
+        // Update political sentiment cards
+        const container = document.getElementById('politicalSentiment');
+        if (!container) return;
+        
+        container.innerHTML = `
+            <div class="col-md-6">
+                <div class="card bg-danger text-white mb-3">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            <i class="fas fa-elephant me-2"></i>
+                            Right-Wing Content
+                        </h5>
+                        <h2>${data.right_wing_count || 0}</h2>
+                        <p class="card-text">Posts with conservative political content</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card bg-primary text-white mb-3">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            <i class="fas fa-donkey me-2"></i>
+                            Left-Wing Content
+                        </h5>
+                        <h2>${data.left_wing_count || 0}</h2>
+                        <p class="card-text">Posts with progressive political content</p>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Update political timeline chart
+        if (data.timeline_data && data.timeline_data.length > 0) {
+            this.createPoliticalTimelineChart(data.timeline_data);
+        }
+
+        // Update trending political phrases
+        if (data.political_phrases) {
+            this.displayTrendingPoliticalPhrases(data.political_phrases);
+        }
+    }
+
+    updateTrendingTopics(data) {
+        // Update trending hashtags
+        const hashtagsContainer = document.getElementById('trendingHashtags');
+        if (hashtagsContainer && data.hashtags) {
+            hashtagsContainer.innerHTML = data.hashtags.slice(0, 10).map(item => 
+                `<div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="badge bg-primary">${item.tag}</span>
+                    <small>${item.count}</small>
+                </div>`
+            ).join('');
+        }
+
+        // Update trending words/keywords
+        const keywordsContainer = document.getElementById('trendingKeywords');
+        if (keywordsContainer && data.words) {
+            keywordsContainer.innerHTML = data.words.slice(0, 10).map(item => 
+                `<div class="d-flex justify-content-between align-items-center mb-1">
+                    <span>${item.word}</span>
+                    <small class="text-muted">${item.count}</small>
+                </div>`
+            ).join('');
+        }
+
+        // Update trending mentions (use words data as proxy)
+        const mentionsContainer = document.getElementById('trendingMentions');
+        if (mentionsContainer && data.words) {
+            mentionsContainer.innerHTML = data.words.slice(0, 5).map(item => 
+                `<div class="d-flex justify-content-between align-items-center mb-1">
+                    <span>@${item.word}</span>
+                    <small class="text-muted">${item.count}</small>
+                </div>`
+            ).join('');
+        }
+    }
+
+    updateUserBehavior(data) {
+        // Update top posters table
+        if (data.top_posters) {
+            this.displayTopPosters(data.top_posters);
+        }
+
+        // Update hourly activity chart
+        if (data.hourly_activity) {
+            this.createHourlyActivityChart(data.hourly_activity);
+        }
+    }
+
+    updateContentAnalysis(data) {
+        // Update sentiment chart
+        if (data.sentiment_analysis) {
+            this.createSentimentChart(data.sentiment_analysis);
+        }
+
+        // Update link analysis chart
+        if (data.link_analysis) {
+            this.createLinkAnalysisChart(data.link_analysis);
+        }
+
+        // Update language length analysis
+        if (data.language_length) {
+            this.displayLanguageLengthAnalysis(data.language_length);
+        }
+    }
+
+    updateNetworkAnalysis(data) {
+        // Update most mentioned users
+        if (data.most_mentioned) {
+            this.displayMostMentioned(data.most_mentioned);
+        }
+
+        // Update concurrent posters
+        if (data.concurrent_activity) {
+            this.displayConcurrentPosters(data.concurrent_activity);
         }
     }
 
     createPoliticalTimelineChart(timelineData) {
-        const ctx = document.getElementById('politicalTimelineChart').getContext('2d');
+        const ctx = document.getElementById('politicalTimelineChart');
+        if (!ctx) return;
         
         if (this.charts.politicalTimeline) {
             this.charts.politicalTimeline.destroy();
@@ -157,7 +278,17 @@ class BlueskyAnalytics {
         this.charts.politicalTimeline = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: timelineData.map(d => new Date(d.date).toLocaleDateString()),
+                labels: timelineData.map(d => {
+                    const date = new Date(d.date);
+                    const options = {
+                        timeZone: 'America/Detroit',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        hour12: true
+                    };
+                    return date.toLocaleString('en-US', options);
+                }),
                 datasets: [{
                     label: 'Political Posts',
                     data: timelineData.map(d => d.count),
@@ -177,6 +308,23 @@ class BlueskyAnalytics {
                 plugins: {
                     legend: {
                         display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                const dataIndex = context[0].dataIndex;
+                                const date = new Date(timelineData[dataIndex].date);
+                                const options = {
+                                    timeZone: 'America/Detroit',
+                                    weekday: 'short',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    hour12: true
+                                };
+                                return date.toLocaleString('en-US', options) + ' ET';
+                            }
+                        }
                     }
                 }
             }
@@ -184,7 +332,8 @@ class BlueskyAnalytics {
     }
 
     createHourlyActivityChart(hourlyData) {
-        const ctx = document.getElementById('hourlyActivityChart').getContext('2d');
+        const ctx = document.getElementById('hourlyActivityChart');
+        if (!ctx) return;
         
         if (this.charts.hourlyActivity) {
             this.charts.hourlyActivity.destroy();
@@ -192,8 +341,8 @@ class BlueskyAnalytics {
 
         // Fill in missing hours with 0
         const fullHourData = Array.from({length: 24}, (_, i) => {
-            const hourData = hourlyData.find(d => d.hour === i);
-            return hourData ? hourData.count : 0;
+            const found = hourlyData.find(d => d.hour === i);
+            return found ? found.count : 0;
         });
 
         this.charts.hourlyActivity = new Chart(ctx, {
@@ -230,7 +379,8 @@ class BlueskyAnalytics {
     }
 
     createLinkAnalysisChart(linkData) {
-        const ctx = document.getElementById('linkAnalysisChart').getContext('2d');
+        const ctx = document.getElementById('linkAnalysisChart');
+        if (!ctx) return;
         
         if (this.charts.linkAnalysis) {
             this.charts.linkAnalysis.destroy();
@@ -259,7 +409,8 @@ class BlueskyAnalytics {
     }
 
     createSentimentChart(sentimentData) {
-        const ctx = document.getElementById('sentimentChart').getContext('2d');
+        const ctx = document.getElementById('sentimentChart');
+        if (!ctx) return;
         
         if (this.charts.sentiment) {
             this.charts.sentiment.destroy();
@@ -293,37 +444,12 @@ class BlueskyAnalytics {
         });
     }
 
-    displayTrendingList(containerId, items, keyName, prefix = '') {
-        const container = document.getElementById(containerId);
-        
-        if (!items || items.length === 0) {
-            container.innerHTML = '<p class="text-muted text-center">No trending items found</p>';
-            return;
-        }
-
-        const maxCount = Math.max(...items.map(item => item.count));
-        
-        container.innerHTML = items.slice(0, 10).map((item, index) => {
-            const percentage = (item.count / maxCount) * 100;
-            return `
-                <div class="trending-item mb-2">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <span class="fw-medium">${prefix}${this.escapeHtml(item[keyName])}</span>
-                        <span class="badge bg-primary">${item.count}</span>
-                    </div>
-                    <div class="progress mt-1" style="height: 4px;">
-                        <div class="progress-bar" style="width: ${percentage}%"></div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
     displayTopPosters(topPosters) {
         const container = document.getElementById('topPostersTable');
+        if (!container) return;
         
         if (!topPosters || topPosters.length === 0) {
-            container.innerHTML = '<p class="text-muted text-center">No high-volume posters found</p>';
+            container.innerHTML = '<div class="text-center py-3"><p class="text-muted">No high-volume posters found</p></div>';
             return;
         }
 
@@ -361,123 +487,138 @@ class BlueskyAnalytics {
 
     displayLanguageLengthAnalysis(languageData) {
         const container = document.getElementById('languageLengthAnalysis');
+        if (!container) return;
         
         if (!languageData || languageData.length === 0) {
-            container.innerHTML = '<p class="text-muted text-center">No language data available</p>';
+            container.innerHTML = '<p class="text-muted">No language data available</p>';
             return;
         }
 
-        const maxLength = Math.max(...languageData.map(lang => lang.avg_length));
-        
-        container.innerHTML = languageData.slice(0, 8).map(lang => {
-            const percentage = (lang.avg_length / maxLength) * 100;
-            return `
-                <div class="mb-2">
-                    <div class="d-flex justify-content-between">
-                        <span>${lang.language.toUpperCase()}</span>
-                        <span class="small">${Math.round(lang.avg_length)} chars (${lang.posts} posts)</span>
-                    </div>
-                    <div class="progress" style="height: 6px;">
-                        <div class="progress-bar bg-info" style="width: ${percentage}%"></div>
-                    </div>
+        container.innerHTML = languageData.map(lang => `
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <strong>${lang.language}</strong>
+                    <small class="text-muted">(${lang.count} posts)</small>
                 </div>
-            `;
-        }).join('');
+                <span class="badge bg-secondary">${lang.avg_length} chars</span>
+            </div>
+        `).join('');
     }
 
     displayMostMentioned(mentionedUsers) {
         const container = document.getElementById('mostMentioned');
-        
-        if (!mentionedUsers || mentionedUsers.length === 0) {
-            container.innerHTML = '<p class="text-muted text-center">No mention data available</p>';
-            return;
-        }
+        if (!container) return;
 
-        container.innerHTML = mentionedUsers.slice(0, 8).map(user => `
+        container.innerHTML = mentionedUsers.slice(0, 10).map(user => `
             <div class="d-flex justify-content-between align-items-center mb-1">
-                <span class="small">@${this.escapeHtml(user.user)}</span>
-                <span class="badge bg-secondary badge-sm">${user.mentions}</span>
+                <span>@${user.handle}</span>
+                <small class="text-muted">${user.count} mentions</small>
             </div>
         `).join('');
     }
 
     displayConcurrentPosters(concurrentData) {
         const container = document.getElementById('concurrentPosters');
-        
-        if (!concurrentData || concurrentData.length === 0) {
-            container.innerHTML = '<p class="text-muted text-center">No concurrent posting patterns found</p>';
-            return;
-        }
+        if (!container) return;
 
-        container.innerHTML = concurrentData.slice(0, 8).map(pair => `
-            <div class="small mb-1">
-                <strong>@${this.escapeHtml(pair.user1)}</strong> & 
-                <strong>@${this.escapeHtml(pair.user2)}</strong>
-                <span class="badge bg-warning text-dark ms-1">${pair.count}</span>
-            </div>
-        `).join('');
+        container.innerHTML = concurrentData.slice(0, 5).map(activity => {
+            const date = new Date(activity.minute);
+            const timeOptions = {
+                timeZone: 'America/Detroit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+            };
+            const easternTime = date.toLocaleTimeString('en-US', timeOptions) + ' ET';
+            
+            return `
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span>${easternTime}</span>
+                    <small class="text-muted">${activity.unique_authors} users, ${activity.total_posts} posts</small>
+                </div>
+            `;
+        }).join('');
     }
 
     displayTrendingPoliticalPhrases(phrases) {
         const container = document.getElementById('trendingPoliticalPhrases');
-        
-        if (!phrases || phrases.length === 0) {
-            container.innerHTML = '<p class="text-muted text-center small">No political phrases trending in last 24h</p>';
-            return;
-        }
+        if (!container) return;
 
-        const maxCount = Math.max(...phrases.map(phrase => phrase.count));
-        
-        container.innerHTML = phrases.slice(0, 8).map((phrase, index) => {
-            const percentage = (phrase.count / maxCount) * 100;
-            return `
-                <div class="trending-phrase-item mb-2">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <span class="small fw-medium">"${this.escapeHtml(phrase.phrase)}"</span>
-                        <span class="badge bg-secondary badge-sm">${phrase.count}</span>
-                    </div>
-                    <div class="progress mt-1" style="height: 3px;">
-                        <div class="progress-bar bg-warning" style="width: ${percentage}%"></div>
-                    </div>
-                </div>
-            `;
-        }).join('');
+        const phraseCounts = {};
+        phrases.forEach(phrase => {
+            phraseCounts[phrase] = (phraseCounts[phrase] || 0) + 1;
+        });
+
+        const sortedPhrases = Object.entries(phraseCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10);
+
+        container.innerHTML = sortedPhrases.map(([phrase, count]) => `
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="badge bg-warning text-dark">${phrase}</span>
+                <small>${count}</small>
+            </div>
+        `).join('');
     }
 
     toggleAutoRefresh() {
         const button = document.getElementById('autoRefreshToggle');
         
         if (this.autoRefreshEnabled) {
-            clearInterval(this.autoRefreshInterval);
+            // Stop auto refresh
             this.autoRefreshEnabled = false;
+            if (this.autoRefreshInterval) {
+                clearInterval(this.autoRefreshInterval);
+                this.autoRefreshInterval = null;
+            }
+            if (this.socket) {
+                this.socket.emit('stop_analytics_monitoring');
+            }
             button.innerHTML = '<i class="fas fa-play me-1"></i>Auto Refresh (30s)';
-            button.className = 'btn btn-outline-secondary';
+            button.classList.remove('btn-success');
+            button.classList.add('btn-outline-secondary');
         } else {
+            // Start auto refresh
+            this.autoRefreshEnabled = true;
             this.autoRefreshInterval = setInterval(() => {
                 this.loadAllData();
             }, 30000);
-            this.autoRefreshEnabled = true;
+            if (this.socket) {
+                this.socket.emit('start_analytics_monitoring');
+            }
             button.innerHTML = '<i class="fas fa-pause me-1"></i>Auto Refresh (ON)';
-            button.className = 'btn btn-success';
+            button.classList.remove('btn-outline-secondary');
+            button.classList.add('btn-success');
         }
     }
 
     updateLastUpdated() {
-        document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+        const element = document.getElementById('lastUpdated');
+        if (element) {
+            const now = new Date();
+            const options = {
+                timeZone: 'America/Detroit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true
+            };
+            element.textContent = now.toLocaleTimeString('en-US', options) + ' ET';
+        }
     }
 
     showError(message) {
-        // Create a toast notification for errors
+        // Create a simple toast notification
         const toast = document.createElement('div');
-        toast.className = 'toast position-fixed top-0 end-0 m-3';
+        toast.className = 'toast align-items-center text-white bg-danger border-0 position-fixed top-0 end-0 m-3';
+        toast.style.zIndex = '9999';
         toast.innerHTML = `
-            <div class="toast-header bg-danger text-white">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                <strong class="me-auto">Error</strong>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
-            </div>
-            <div class="toast-body">
-                ${message}
+            <div class="d-flex">
+                <div class="toast-body">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    ${message}
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
             </div>
         `;
         
@@ -485,34 +626,34 @@ class BlueskyAnalytics {
         const bsToast = new bootstrap.Toast(toast);
         bsToast.show();
         
-        // Remove after hiding
+        // Remove toast after it's hidden
         toast.addEventListener('hidden.bs.toast', () => {
-            toast.remove();
+            document.body.removeChild(toast);
         });
     }
 
     formatNumber(num) {
-        if (num >= 1000000) {
-            return (num / 1000000).toFixed(1) + 'M';
-        } else if (num >= 1000) {
-            return (num / 1000).toFixed(1) + 'K';
-        }
-        return num.toString();
+        return new Intl.NumberFormat().format(num);
     }
 
     formatDateTime(dateString) {
-        if (!dateString) return 'Unknown';
+        if (!dateString) return 'N/A';
         
-        // Parse the date and format it for Eastern Time display
         const date = new Date(dateString);
         
-        // Format as time with AM/PM for Eastern Time
-        return date.toLocaleTimeString('en-US', {
-            hour: '2-digit', 
+        // Format for Eastern timezone display
+        const options = {
+            timeZone: 'America/Detroit',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
             minute: '2-digit',
-            hour12: true,
-            timeZoneName: 'short'
-        });
+            second: '2-digit',
+            hour12: true
+        };
+        
+        return date.toLocaleString('en-US', options) + ' ET';
     }
 
     escapeHtml(text) {
@@ -522,7 +663,6 @@ class BlueskyAnalytics {
     }
 
     truncate(text, length) {
-        if (!text) return '';
         return text.length > length ? text.substring(0, length) + '...' : text;
     }
 }

@@ -224,3 +224,18 @@ def detect_political_phrases(text):
             detected['total_score'] -= 1  # Negative score for left-wing
     
     return detected
+
+
+'''
+
+vscode ➜ /workspaces/bsky (main) $ df  /workspaces
+Filesystem     1K-blocks      Used Available Use% Mounted on
+D:\            976759804 706425256 270334548  73% /workspaces'''
+
+def get_disk_usage(path='/workspaces'):
+    """Get disk usage percentage for a given path"""
+    import os
+    import shutil
+    
+    total, used, free = shutil.disk_usage(path)
+    return (used / total) * 100 if total > 0 else 0
