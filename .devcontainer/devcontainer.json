@@ -12,13 +12,14 @@
     "vscode": {
       "extensions": [
         "ms-python.python",
+        "ms-python.pylint",
+        "ms-python.flake8",
         "ms-python.black-formatter",
         "ms-python.isort",
         "mtxr.sqltools",
         "mtxr.sqltools-driver-mysql",
         "ms-vscode.vscode-json",
-        "ms-python.debugpy",
-        "ms-python.jupyter"
+        "ms-python.debugpy"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",

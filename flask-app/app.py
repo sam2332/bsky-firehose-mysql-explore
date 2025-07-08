@@ -3,6 +3,7 @@ import mysql.connector
 from datetime import datetime
 from collections import Counter
 import re
+import pytz
 
 app = Flask(__name__)
 
@@ -144,10 +145,29 @@ def format_post_text(text: str, max_length: int = 200) -> str:
     
     return text
 
+def utc_to_eastern(dt):
+    """Convert UTC datetime to Eastern Time"""
+    if not dt:
+        return None
+    
+    # Define timezones
+    utc = pytz.timezone('UTC')
+    eastern = pytz.timezone('US/Eastern')
+    
+    # If datetime is naive, assume it's UTC
+    if dt.tzinfo is None:
+        dt = utc.localize(dt)
+    
+    # Convert to Eastern Time
+    return dt.astimezone(eastern)
+
 def format_datetime(dt) -> str:
-    """Format datetime for display"""
+    """Format datetime for display in Michigan timezone (Eastern Time)"""
     if not dt:
         return "Unknown"
+    
+    # Define Michigan timezone (Eastern Time)
+    eastern = pytz.timezone('US/Eastern')
     
     if isinstance(dt, str):
         try:
@@ -155,22 +175,39 @@ def format_datetime(dt) -> str:
         except Exception:
             return dt
     
-    # Calculate time difference
-    now = datetime.utcnow()
-    diff = now - dt.replace(tzinfo=None) if dt.tzinfo else now - dt
+    # Convert to Michigan timezone if datetime has timezone info
+    if dt.tzinfo:
+        # Convert to Eastern time
+        dt_eastern = dt.astimezone(eastern)
+    else:
+        # Assume UTC if no timezone info and convert to Eastern
+        utc = pytz.UTC
+        dt_utc = utc.localize(dt)
+        dt_eastern = dt_utc.astimezone(eastern)
+    
+    # Calculate time difference using Eastern time
+    now_eastern = datetime.now(eastern)
+    diff = now_eastern - dt_eastern
+    
+    # Handle negative differences (future dates)
+    if diff.total_seconds() < 0:
+        return dt_eastern.strftime('%Y-%m-%d %I:%M %p ET')
+    
+    # Get total seconds for accurate calculations
+    total_seconds = diff.total_seconds()
     
     if diff.days > 7:
-        return dt.strftime('%Y-%m-%d %H:%M')
+        return dt_eastern.strftime('%Y-%m-%d %I:%M %p ET')
     elif diff.days > 0:
         return f"{diff.days} day{'s' if diff.days > 1 else ''} ago"
-    elif diff.seconds > 3600:
-        hours = diff.seconds // 3600
+    elif total_seconds > 3600:
+        hours = int(total_seconds // 3600)
         return f"{hours} hour{'s' if hours > 1 else ''} ago"
-    elif diff.seconds > 60:
-        minutes = diff.seconds // 60
+    elif total_seconds > 60:
+        minutes = int(total_seconds // 60)
         return f"{minutes} minute{'s' if minutes > 1 else ''} ago"
     else:
-        return "Just now"
+        return f"{round(total_seconds)} seconds ago"
 
 @app.route('/')
 def index():
@@ -713,13 +750,17 @@ def user_behavior():
             handle, did, count, first, last = row
             time_diff = (last - first).total_seconds() / 3600 if last and first else 0
             
+            # Convert UTC timestamps to Eastern Time
+            first_et = utc_to_eastern(first) if first else None
+            last_et = utc_to_eastern(last) if last else None
+            
             top_posters.append({
                 'handle': handle,
                 'did': did,
                 'post_count': count,
                 'posts_per_hour': round(count / max(time_diff, 1), 2),
-                'first_post': first.isoformat() if first else None,
-                'last_post': last.isoformat() if last else None
+                'first_post': first_et.isoformat() if first_et else None,
+                'last_post': last_et.isoformat() if last_et else None
             })
         
         # Posting patterns by hour

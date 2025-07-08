@@ -502,7 +502,17 @@ class BlueskyAnalytics {
 
     formatDateTime(dateString) {
         if (!dateString) return 'Unknown';
-        return new Date(dateString).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        
+        // Parse the date and format it for Eastern Time display
+        const date = new Date(dateString);
+        
+        // Format as time with AM/PM for Eastern Time
+        return date.toLocaleTimeString('en-US', {
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: true,
+            timeZoneName: 'short'
+        });
     }
 
     escapeHtml(text) {
