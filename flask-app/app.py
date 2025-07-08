@@ -1,11 +1,16 @@
 from flask import Flask, render_template, request, jsonify
+from flask_socketio import SocketIO, emit
 import mysql.connector
 from datetime import datetime
 from collections import Counter
 import re
 import pytz
+import threading
+import time
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Database configuration
 MYSQL_CONFIG = {
@@ -511,10 +516,14 @@ def analytics():
     """Analytics dashboard page"""
     return render_template('analytics.html')
 
+@app.route('/ingress')
+def ingress():
+    """Real-time data ingress monitoring page"""
+    return render_template('ingress.html')
 
-@app.route('/api/political-sentiment')
-def political_sentiment():
-    """Analyze political sentiment in posts - optimized version"""
+@app.route('/api/ingress-stats')
+def ingress_stats():
+    """Get real-time ingress statistics"""
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Database connection failed'}), 500
@@ -522,205 +531,140 @@ def political_sentiment():
     try:
         cursor = conn.cursor()
         
-        # Much faster approach: Use a few key phrases and combine them
-        # Instead of checking every phrase individually
+        # Posts in the last minute
+        cursor.execute('''
+            SELECT COUNT(*) FROM posts 
+            WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
+        ''')
+        posts_last_minute = cursor.fetchone()[0]
         
-        # Key right-wing indicators (most common/distinctive)
-        right_key_phrases = [
-            "maga", "trump", "america first", "second amendment", "gun rights",
-            "border security", "traditional values", "deep state"
-        ]
+        # Posts in the last 5 minutes
+        cursor.execute('''
+            SELECT COUNT(*) FROM posts 
+            WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+        ''')
+        posts_last_5min = cursor.fetchone()[0]
         
-        # Key left-wing indicators (most common/distinctive) 
-        left_key_phrases = [
-            "social justice", "climate change", "black lives matter", "lgbtq",
-            "medicare for all", "wealth inequality", "defund police", "reproductive rights"
-        ]
+        # Posts in the last hour
+        cursor.execute('''
+            SELECT COUNT(*) FROM posts 
+            WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+        ''')
+        posts_last_hour = cursor.fetchone()[0]
         
-        # Single query for right-wing posts using key phrases only
-        right_conditions = " OR ".join([f"LOWER(text) LIKE %s" for _ in right_key_phrases])
-        right_params = [f"%{phrase.lower()}%" for phrase in right_key_phrases]
+        # Posts today
+        cursor.execute('''
+            SELECT COUNT(*) FROM posts 
+            WHERE DATE(saved_at) = CURDATE()
+        ''')
+        posts_today = cursor.fetchone()[0]
         
-        cursor.execute(f"""
-            SELECT COUNT(DISTINCT id) as count, COUNT(DISTINCT author_did) as unique_authors
+        # Current ingress rate (posts per minute) - use actual last minute count
+        ingress_rate = posts_last_minute
+        
+        # 5-minute average for comparison
+        ingress_rate_5min_avg = posts_last_5min / 5.0 if posts_last_5min else 0
+        
+        # Languages in last 5 minutes
+        cursor.execute('''
+            SELECT language, COUNT(*) as count 
             FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            AND ({right_conditions})
-        """, right_params)
-        right_stats = cursor.fetchone()
+            WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+            AND language IS NOT NULL 
+            GROUP BY language 
+            ORDER BY count DESC 
+            LIMIT 5
+        ''')
+        recent_languages = [{'language': lang or 'Unknown', 'count': count} 
+                          for lang, count in cursor.fetchall()]
         
-        # Single query for left-wing posts using key phrases only
-        left_conditions = " OR ".join([f"LOWER(text) LIKE %s" for _ in left_key_phrases])
-        left_params = [f"%{phrase.lower()}%" for phrase in left_key_phrases]
-        
-        cursor.execute(f"""
-            SELECT COUNT(DISTINCT id) as count, COUNT(DISTINCT author_did) as unique_authors
+        # Top authors in last 5 minutes
+        cursor.execute('''
+            SELECT author_handle, COUNT(*) as count 
             FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            AND ({left_conditions})
-        """, left_params)
-        left_stats = cursor.fetchone()
+            WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+            AND author_handle IS NOT NULL 
+            GROUP BY author_handle 
+            ORDER BY count DESC 
+            LIMIT 5
+        ''')
+        top_recent_authors = [{'handle': author, 'post_count': count, 'display_name': ''} 
+                            for author, count in cursor.fetchall()]
         
-        # Simplified timeline - just get daily political activity
-        cursor.execute("""
-            SELECT 
-                DATE(created_at) as date,
-                COUNT(*) as posts_count
-            FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            AND (
-                LOWER(text) LIKE '%trump%' OR LOWER(text) LIKE '%biden%' OR 
-                LOWER(text) LIKE '%climate%' OR LOWER(text) LIKE '%politics%' OR
-                LOWER(text) LIKE '%election%' OR LOWER(text) LIKE '%vote%'
+        # Active authors today
+        cursor.execute('''
+            SELECT COUNT(DISTINCT author_did) FROM posts 
+            WHERE DATE(saved_at) = CURDATE()
+        ''')
+        active_authors_today = cursor.fetchone()[0]
+        
+        # New authors today (authors who posted for the first time today)
+        cursor.execute('''
+            SELECT COUNT(DISTINCT p1.author_did) 
+            FROM posts p1
+            WHERE DATE(p1.saved_at) = CURDATE()
+            AND NOT EXISTS (
+                SELECT 1 FROM posts p2 
+                WHERE p2.author_did = p1.author_did 
+                AND DATE(p2.saved_at) < CURDATE()
             )
-            GROUP BY DATE(created_at)
-            ORDER BY date
-        """)
+        ''')
+        new_authors_today = cursor.fetchone()[0]
         
-        timeline = [{'date': row[0].isoformat(), 'count': row[1]} 
-                   for row in cursor.fetchall()]
-        
-        # Quick phrase detection for trending topics (limit to recent posts)
-        cursor.execute("""
-            SELECT text
+        # Most recent posts (last 10)
+        cursor.execute('''
+            SELECT author_handle, text, saved_at, language
             FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-            AND (
-                LOWER(text) LIKE '%trump%' OR LOWER(text) LIKE '%biden%' OR 
-                LOWER(text) LIKE '%climate%' OR LOWER(text) LIKE '%abortion%' OR
-                LOWER(text) LIKE '%gun%' OR LOWER(text) LIKE '%immigration%'
-            )
-            LIMIT 500
-        """)
-        
-        recent_posts = cursor.fetchall()
-        phrase_counts = {}
-        
-        # Count key phrases in recent political posts
-        check_phrases = [
-            "trump", "biden", "climate change", "abortion", "gun rights", 
-            "immigration", "healthcare", "economy", "democracy", "election"
-        ]
-        
-        for phrase in check_phrases:
-            count = 0
-            for (text,) in recent_posts:
-                if phrase.lower() in text.lower():
-                    count += 1
-            if count > 0:
-                phrase_counts[phrase] = count
-        
-        # Convert to list and sort
-        trending_phrases = [{'phrase': phrase, 'count': count} 
-                          for phrase, count in phrase_counts.items()]
-        trending_phrases.sort(key=lambda x: x['count'], reverse=True)
+            ORDER BY saved_at DESC 
+            LIMIT 10
+        ''')
+        recent_posts = []
+        for author, text, saved_at, language in cursor.fetchall():
+            recent_posts.append({
+                'author': author or 'Unknown',
+                'text': format_post_text(text, 100),
+                'saved_at': format_datetime(saved_at),
+                'language': language or 'Unknown'
+            })
         
         conn.close()
         
         return jsonify({
-            'right_wing': {
-                'posts': right_stats[0] or 0,
-                'unique_authors': right_stats[1] or 0
-            },
-            'left_wing': {
-                'posts': left_stats[0] or 0, 
-                'unique_authors': left_stats[1] or 0
-            },
-            'timeline': timeline,
-            'trending_phrases': trending_phrases[:8]
+            'posts_per_minute': posts_last_minute,  # Actual posts in last minute
+            'posts_per_minute_5min_avg': round(ingress_rate_5min_avg, 2),  # 5-minute average
+            'posts_last_minute': posts_last_minute,
+            'posts_last_5min': posts_last_5min,
+            'posts_last_hour': posts_last_hour,
+            'total_today': posts_today,
+            'last_hour': posts_last_hour,
+            'ingress_rate': posts_last_minute,  # Match posts_per_minute for consistency
+            'recent_languages': recent_languages,
+            'top_recent_authors': top_recent_authors,
+            'recent_posts': recent_posts,
+            'timestamp': datetime.now().isoformat(),
+            # Author metrics for JavaScript
+            'new_authors_today': new_authors_today,
+            'active_authors_now': active_authors_today,
+            'top_active': top_recent_authors,
+            # Additional fields the JS expects
+            'posts_per_minute_change': 0,  # Would need historical data to calculate
+            'total_today_change': 0,
+            'last_hour_change': 0,
+            'errors_per_minute': 0,
+            'errors_per_minute_change': 0,
+            'db_write_rate': posts_last_minute,  # Use actual posts per minute
+            'db_queue_size': 0,
+            'db_usage_percent': 45  # Mock value
         })
         
     except Exception as e:
         if conn:
             conn.close()
-        print(f"Political sentiment error: {e}")  # Debug logging
         return jsonify({'error': str(e)}), 500
 
-
-@app.route('/api/trending-topics')
-def trending_topics():
-    """Get trending topics and keywords"""
-    conn = get_db_connection()
-    if not conn:
-        return jsonify({'error': 'Database connection failed'}), 500
-    
-    try:
-        time_period = request.args.get('period', '24h')
-        
-        # Convert period to MySQL interval
-        if time_period == '1h':
-            interval = 'INTERVAL 1 HOUR'
-        elif time_period == '6h':
-            interval = 'INTERVAL 6 HOUR' 
-        elif time_period == '24h':
-            interval = 'INTERVAL 24 HOUR'
-        elif time_period == '7d':
-            interval = 'INTERVAL 7 DAY'
-        else:
-            interval = 'INTERVAL 24 HOUR'
-        
-        cursor = conn.cursor()
-        
-        # Get recent posts for keyword analysis
-        cursor.execute(f"""
-            SELECT text 
-            FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), {interval})
-            AND text IS NOT NULL
-            LIMIT 5000
-        """)
-        
-        posts_text = cursor.fetchall()
-        
-        # Analyze keywords
-        word_freq = Counter()
-        for (text,) in posts_text:
-            words = re.findall(r'\b\w+\b', text.lower())
-            word_freq.update(word for word in words 
-                           if word not in STOP_WORDS and len(word) > 3)
-        
-        # Get most frequent hashtags/mentions
-        cursor.execute(f"""
-            SELECT text
-            FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), {interval})
-            AND (text LIKE '%#%' OR text LIKE '%@%')
-            LIMIT 2000
-        """)
-        
-        hashtag_posts = cursor.fetchall()
-        hashtags = Counter()
-        mentions = Counter()
-        
-        for (text,) in hashtag_posts:
-            # Extract hashtags
-            hashtag_matches = re.findall(r'#(\w+)', text)
-            hashtags.update(hashtag_matches)
-            
-            # Extract mentions
-            mention_matches = re.findall(r'@(\w+)', text)
-            mentions.update(mention_matches)
-        
-        conn.close()
-        
-        return jsonify({
-            'period': time_period,
-            'trending_keywords': [{'word': word, 'count': count} 
-                                for word, count in word_freq.most_common(20)],
-            'trending_hashtags': [{'hashtag': tag, 'count': count} 
-                                for tag, count in hashtags.most_common(10)],
-            'trending_mentions': [{'mention': mention, 'count': count} 
-                                for mention, count in mentions.most_common(10)]
-        })
-        
-    except Exception as e:
-        conn.close()
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/user-behavior')
-def user_behavior():
-    """Analyze user posting behavior and patterns"""
+@app.route('/api/ingress-timeline')
+def ingress_timeline():
+    """Get timeline data for ingress charts"""
     conn = get_db_connection()
     if not conn:
         return jsonify({'error': 'Database connection failed'}), 500
@@ -728,217 +672,75 @@ def user_behavior():
     try:
         cursor = conn.cursor()
         
-        # Top posters in last 24 hours
-        cursor.execute("""
+        # Posts per minute for the last hour
+        cursor.execute('''
             SELECT 
-                author_handle,
-                author_did,
-                COUNT(*) as post_count,
-                MIN(created_at) as first_post,
-                MAX(created_at) as last_post
+                DATE_FORMAT(saved_at, '%Y-%m-%d %H:%i:00') as minute,
+                COUNT(*) as count
             FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-            AND author_handle IS NOT NULL
-            GROUP BY author_handle, author_did
-            HAVING post_count >= 5
-            ORDER BY post_count DESC
-            LIMIT 20
-        """)
+            WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+            GROUP BY DATE_FORMAT(saved_at, '%Y-%m-%d %H:%i:00')
+            ORDER BY minute
+        ''')
         
-        top_posters = []
-        for row in cursor.fetchall():
-            handle, did, count, first, last = row
-            time_diff = (last - first).total_seconds() / 3600 if last and first else 0
-            
-            # Convert UTC timestamps to Eastern Time
-            first_et = utc_to_eastern(first) if first else None
-            last_et = utc_to_eastern(last) if last else None
-            
-            top_posters.append({
-                'handle': handle,
-                'did': did,
-                'post_count': count,
-                'posts_per_hour': round(count / max(time_diff, 1), 2),
-                'first_post': first_et.isoformat() if first_et else None,
-                'last_post': last_et.isoformat() if last_et else None
+        minute_data = []
+        for minute_str, count in cursor.fetchall():
+            minute_data.append({
+                'time': minute_str,
+                'count': count
             })
         
-        # Posting patterns by hour
-        cursor.execute("""
+        # Posts per 5-minute interval for the last 4 hours
+        cursor.execute('''
             SELECT 
-                HOUR(created_at) as hour,
-                COUNT(*) as post_count
-            FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            GROUP BY HOUR(created_at)
-            ORDER BY hour
-        """)
-        
-        hourly_activity = [{'hour': row[0], 'count': row[1]} 
-                          for row in cursor.fetchall()]
-        
-        # Language distribution for active users
-        cursor.execute("""
-            SELECT 
-                language,
-                COUNT(*) as count,
-                COUNT(DISTINCT author_did) as unique_authors
-            FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-            AND language IS NOT NULL
-            GROUP BY language
-            ORDER BY count DESC
-            LIMIT 10
-        """)
-        
-        language_activity = [{'language': row[0], 'posts': row[1], 'users': row[2]} 
-                           for row in cursor.fetchall()]
-        
-        conn.close()
-        
-        return jsonify({
-            'top_posters': top_posters,
-            'hourly_activity': hourly_activity,
-            'language_activity': language_activity
-        })
-        
-    except Exception as e:
-        conn.close()
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/content-analysis')
-def content_analysis():
-    """Analyze content patterns and themes"""
-    conn = get_db_connection()
-    if not conn:
-        return jsonify({'error': 'Database connection failed'}), 500
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Average post length by language
-        cursor.execute("""
-            SELECT 
-                language,
-                AVG(CHAR_LENGTH(text)) as avg_length,
-                COUNT(*) as post_count
-            FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            AND text IS NOT NULL
-            AND language IS NOT NULL
-            GROUP BY language
-            HAVING post_count >= 10
-            ORDER BY avg_length DESC
-        """)
-        
-        length_by_language = [{'language': row[0], 'avg_length': round(row[1], 1), 'posts': row[2]} 
-                            for row in cursor.fetchall()]
-        
-        # Posts with links vs without
-        cursor.execute("""
-            SELECT 
-                CASE 
-                    WHEN text LIKE '%http%' THEN 'With Links'
-                    ELSE 'Text Only'
-                END as post_type,
+                DATE_FORMAT(saved_at, '%Y-%m-%d %H:%i:00') as time_slot,
                 COUNT(*) as count
             FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-            GROUP BY post_type
-        """)
+            WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 4 HOUR)
+            GROUP BY FLOOR(UNIX_TIMESTAMP(saved_at) / 300)
+            ORDER BY time_slot
+        ''')
         
-        link_analysis = [{'type': row[0], 'count': row[1]} 
-                        for row in cursor.fetchall()]
+        interval_data = []
+        for time_slot, count in cursor.fetchall():
+            interval_data.append({
+                'time': time_slot,
+                'count': count
+            })
         
-        # Sentiment indicators (simple keyword-based)
-        cursor.execute("""
+        # Language distribution over last hour
+        cursor.execute('''
             SELECT 
-                CASE 
-                    WHEN text REGEXP '😀|😊|😍|🎉|❤️|💕|😁|😃|😄|happy|love|great|amazing|awesome|wonderful' THEN 'Positive'
-                    WHEN text REGEXP '😢|😭|😡|😤|💔|😞|😔|sad|angry|hate|terrible|awful|horrible|bad' THEN 'Negative'
-                    ELSE 'Neutral'
-                END as sentiment,
+                language,
+                DATE_FORMAT(saved_at, '%Y-%m-%d %H:%i:00') as minute,
                 COUNT(*) as count
             FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-            AND text IS NOT NULL
-            GROUP BY sentiment
-        """)
+            WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+            AND language IS NOT NULL
+            GROUP BY language, DATE_FORMAT(saved_at, '%Y-%m-%d %H:%i:00')
+            ORDER BY minute, count DESC
+        ''')
         
-        sentiment_analysis = [{'sentiment': row[0], 'count': row[1]} 
-                            for row in cursor.fetchall()]
-        
-        conn.close()
-        
-        return jsonify({
-            'length_by_language': length_by_language,
-            'link_analysis': link_analysis,
-            'sentiment_analysis': sentiment_analysis
-        })
-        
-    except Exception as e:
-        conn.close()
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/network-analysis')
-def network_analysis():
-    """Analyze user interaction networks and patterns"""
-    conn = get_db_connection()
-    if not conn:
-        return jsonify({'error': 'Database connection failed'}), 500
-    
-    try:
-        cursor = conn.cursor()
-        
-        # Most mentioned users
-        cursor.execute("""
-            SELECT text 
-            FROM posts 
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-            AND text LIKE '%@%'
-            LIMIT 1000
-        """)
-        
-        mention_posts = cursor.fetchall()
-        mentions = Counter()
-        
-        for (text,) in mention_posts:
-            mention_matches = re.findall(r'@(\w+)', text)
-            mentions.update(mention_matches)
-        
-        # Authors who post most frequently together (same timeframes)
-        cursor.execute("""
-            SELECT 
-                p1.author_handle as user1,
-                p2.author_handle as user2,
-                COUNT(*) as concurrent_posts
-            FROM posts p1
-            JOIN posts p2 ON p1.author_handle != p2.author_handle
-                AND ABS(TIMESTAMPDIFF(MINUTE, p1.created_at, p2.created_at)) <= 5
-            WHERE p1.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-            AND p1.author_handle IS NOT NULL
-            AND p2.author_handle IS NOT NULL
-            GROUP BY p1.author_handle, p2.author_handle
-            HAVING concurrent_posts >= 3
-            ORDER BY concurrent_posts DESC
-            LIMIT 20
-        """)
-        
-        concurrent_posters = [{'user1': row[0], 'user2': row[1], 'count': row[2]} 
-                            for row in cursor.fetchall()]
+        language_timeline = {}
+        for language, minute, count in cursor.fetchall():
+            if language not in language_timeline:
+                language_timeline[language] = []
+            language_timeline[language].append({
+                'time': minute,
+                'count': count
+            })
         
         conn.close()
         
         return jsonify({
-            'most_mentioned': [{'user': user, 'mentions': count} 
-                             for user, count in mentions.most_common(15)],
-            'concurrent_posters': concurrent_posters
+            'minute_data': minute_data,
+            'interval_data': interval_data,
+            'language_timeline': language_timeline
         })
         
     except Exception as e:
-        conn.close()
+        if conn:
+            conn.close()
         return jsonify({'error': str(e)}), 500
 
 def detect_political_phrases(text):
@@ -974,6 +776,130 @@ def detect_political_phrases(text):
     
     return detected
 
+# Socket.IO event handlers for real-time ingress monitoring
+@socketio.on('connect')
+def handle_connect():
+    """Handle client connection"""
+    print('Client connected to ingress monitoring')
+    emit('status', {'message': 'Connected to real-time ingress monitoring'})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection"""
+    print('Client disconnected from ingress monitoring')
+
+@socketio.on('start_monitoring')
+def handle_start_monitoring():
+    """Start real-time monitoring for this client"""
+    print('Starting real-time monitoring for client')
+    emit('monitoring_started', {'status': 'success'})
+
+@socketio.on('stop_monitoring')
+def handle_stop_monitoring():
+    """Stop real-time monitoring for this client"""
+    print('Stopping real-time monitoring for client')
+    emit('monitoring_stopped', {'status': 'success'})
+
+# Background task for broadcasting real-time data
+def background_ingress_monitor():
+    """Background task to broadcast ingress data to all connected clients"""
+    while True:
+        try:
+            # Get fresh ingress data
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                
+                # Get current metrics
+                cursor.execute('SELECT COUNT(*) FROM posts WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)')
+                posts_last_minute = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT COUNT(*) FROM posts WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)')
+                posts_last_5min = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT COUNT(*) FROM posts WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)')
+                posts_last_hour = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT COUNT(*) FROM posts WHERE DATE(saved_at) = CURDATE()')
+                posts_today = cursor.fetchone()[0]
+                
+                ingress_rate = posts_last_minute
+                
+                # 5-minute average for comparison
+                ingress_rate_5min_avg = posts_last_5min / 5.0 if posts_last_5min else 0
+                
+                # Get recent languages
+                cursor.execute('''
+                    SELECT language, COUNT(*) as count 
+                    FROM posts 
+                    WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                    AND language IS NOT NULL 
+                    GROUP BY language 
+                    ORDER BY count DESC 
+                    LIMIT 5
+                ''')
+                recent_languages = [{'language': lang or 'Unknown', 'count': count} 
+                                  for lang, count in cursor.fetchall()]
+                
+                # Get active authors
+                cursor.execute('''
+                    SELECT author_handle, COUNT(*) as count 
+                    FROM posts 
+                    WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                    AND author_handle IS NOT NULL 
+                    GROUP BY author_handle 
+                    ORDER BY count DESC 
+                    LIMIT 5
+                ''')
+                top_active_authors = [{'handle': author, 'post_count': count, 'display_name': ''} 
+                                    for author, count in cursor.fetchall()]
+                
+                # Get most recent posts
+                cursor.execute('''
+                    SELECT author_handle, text, saved_at, language
+                    FROM posts 
+                    ORDER BY saved_at DESC 
+                    LIMIT 5
+                ''')
+                recent_posts = []
+                for author, text, saved_at, language in cursor.fetchall():
+                    recent_posts.append({
+                        'author': author or 'Unknown',
+                        'text': format_post_text(text, 100),
+                        'saved_at': format_datetime(saved_at),
+                        'language': language or 'Unknown'
+                    })
+                
+                conn.close()
+                
+                # Broadcast data to all connected clients
+                socketio.emit('ingress_update', {
+                    'posts_per_minute': posts_last_minute,  # Actual posts in last minute
+                    'posts_per_minute_5min_avg': round(ingress_rate_5min_avg, 2),  # 5-minute average
+                    'posts_last_minute': posts_last_minute,
+                    'posts_last_5min': posts_last_5min,
+                    'posts_last_hour': posts_last_hour,
+                    'total_today': posts_today,
+                    'last_hour': posts_last_hour,
+                    'languages': recent_languages,
+                    'top_active': top_active_authors,
+                    'recent_posts': recent_posts,
+                    'timestamp': datetime.now().isoformat(),
+                    'db_write_rate': posts_last_minute,  # Use actual posts per minute
+                    'db_queue_size': 0,
+                    'db_usage_percent': 45
+                })
+                
+        except Exception as e:
+            print(f"Error in background monitor: {e}")
+            socketio.emit('error', {'message': str(e)})
+        
+        # Wait 3 seconds before next update
+        time.sleep(3)
+
+# Start background monitoring thread
+monitor_thread = threading.Thread(target=background_ingress_monitor, daemon=True)
+monitor_thread.start()
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    socketio.run(app, debug=True, host='0.0.0.0', port=5000)
