@@ -11,7 +11,30 @@ class BlueskyExplorer {
         this.loadStats();
         this.loadLanguages();
         this.setupEventListeners();
+        this.setupModalEventHandlers();
         this.loadPosts(); // Load initial posts
+    }
+
+    setupModalEventHandlers() {
+        const modalElement = document.getElementById('postModal');
+        
+        // Ensure modal closes properly
+        modalElement.addEventListener('hidden.bs.modal', (e) => {
+            const modalInstance = bootstrap.Modal.getInstance(modalElement);
+            if (modalInstance) {
+                modalInstance.dispose();
+            }
+        });
+
+        // Handle backdrop clicks
+        modalElement.addEventListener('click', (e) => {
+            if (e.target === modalElement) {
+                const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                if (modalInstance) {
+                    modalInstance.hide();
+                }
+            }
+        });
     }
 
     setupEventListeners() {
@@ -280,9 +303,15 @@ class BlueskyExplorer {
     }
 
     showPostModal(post) {
-        const modal = new bootstrap.Modal(document.getElementById('postModal'));
+        const modalElement = document.getElementById('postModal');
         const modalBody = document.getElementById('postModalBody');
         const viewOnBluesky = document.getElementById('viewOnBluesky');
+
+        // Clear any existing modal instance
+        const existingModal = bootstrap.Modal.getInstance(modalElement);
+        if (existingModal) {
+            existingModal.dispose();
+        }
 
         modalBody.innerHTML = `
             <div class="row">
@@ -291,11 +320,11 @@ class BlueskyExplorer {
                     <p>${this.escapeHtml(post.author_display)}</p>
                     
                     <h6>Content</h6>
-                    <p class="border p-3 rounded bg-light">${this.escapeHtml(post.text_full)}</p>
+                    <p class="border p-3 rounded bg-light">${this.escapeHtml(post.text_full || post.text)}</p>
                     
                     <h6>Details</h6>
                     <ul class="list-unstyled">
-                        <li><strong>Language:</strong> ${post.language}</li>
+                        <li><strong>Language:</strong> ${post.language || 'Unknown'}</li>
                         <li><strong>Created:</strong> ${post.created_at_display}</li>
                         <li><strong>Saved:</strong> ${post.saved_at_display}</li>
                     </ul>
@@ -320,6 +349,16 @@ class BlueskyExplorer {
             viewOnBluesky.style.display = 'none';
         }
 
+        // Create new modal instance with proper configuration
+        const modal = new bootstrap.Modal(modalElement, {
+            backdrop: true,
+            keyboard: true,
+            focus: true
+        });
+
+        // Ensure modal is properly positioned
+        modalElement.style.zIndex = '1050';
+        
         modal.show();
     }
 

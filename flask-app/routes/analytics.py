@@ -105,17 +105,15 @@ def register_socket_routes(socketio):
     # Background task for broadcasting real-time analytics data
     def background_analytics_monitor():
         """Background task to broadcast analytics data to all connected clients"""
-        # Create a shared database instance for this background task
-        db = get_shared_database_class()
-        
         while True:
             try:
-                # Get fresh analytics data using the shared database class
-                # Get all analytics data and emit it
-                analytics_data = get_all_analytics_data(db)
-                
-                # Broadcast data to all connected clients
-                socketio.emit('analytics_update', safe_jsonify(analytics_data))
+                # Use a fresh database instance for each iteration to avoid unread results
+                with get_shared_database_class() as db:
+                    # Get all analytics data and emit it
+                    analytics_data = get_all_analytics_data(db)
+                    
+                    # Broadcast data to all connected clients
+                    socketio.emit('analytics_update', safe_jsonify(analytics_data))
                 
             except Exception as e:
                 print(f"Error in analytics background monitor: {e}")

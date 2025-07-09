@@ -20,6 +20,7 @@ MYSQL_CONFIG = {
     'autocommit': True,
     'connect_timeout': 10,
     'connection_timeout': 10,
+    'buffered': True,
     'sql_mode': 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO'
 }
 
@@ -97,6 +98,11 @@ class DatabaseClass:
         """Test if a connection is still valid"""
         try:
             conn.ping(reconnect=False, attempts=1)
+            # Also ensure no unread results are left
+            try:
+                conn.consume_results()
+            except:
+                pass
             return True
         except Exception:
             return False
@@ -145,6 +151,13 @@ class DatabaseClass:
         if not self._is_connection_alive():
             logger.info("Connection lost, attempting to reconnect...")
             self._connect()
+        else:
+            # Clear any unread results from previous operations
+            try:
+                if self.connection:
+                    self.connection.consume_results()
+            except:
+                pass
 
     def _execute_with_retry(self, operation, *args, **kwargs):
         """Execute database operation with retry logic"""
@@ -153,6 +166,7 @@ class DatabaseClass:
         for attempt in range(self.max_retries + 1):
             try:
                 self._ensure_connection()
+                self._clear_unread_results()
                 return operation(*args, **kwargs)
                 
             except mysql.connector.Error as e:
@@ -163,6 +177,9 @@ class DatabaseClass:
                 if e.errno in [2006, 2013, 2055, 2003]:  # Connection lost, lost connection to server, etc.
                     logger.info("Connection error detected, forcing reconnection")
                     self.connection = None
+                elif "Unread result found" in str(e):
+                    logger.info("Unread result found, clearing and retrying")
+                    self._clear_unread_results()
                 
                 if attempt < self.max_retries:
                     delay = min(self.base_delay * (2 ** attempt), self.max_delay)
@@ -179,14 +196,26 @@ class DatabaseClass:
         cursor = None
         try:
             self._ensure_connection()
-            cursor = self.connection.cursor(dictionary=dictionary)
+            cursor = self.connection.cursor(dictionary=dictionary, buffered=True)
             yield cursor
         except Exception as e:
             if cursor:
+                # Consume any unread results before closing
+                try:
+                    while cursor.nextset():
+                        pass
+                except:
+                    pass
                 cursor.close()
             raise e
         finally:
             if cursor:
+                # Consume any unread results before closing
+                try:
+                    while cursor.nextset():
+                        pass
+                except:
+                    pass
                 cursor.close()
 
     def fetch_all(self, query: str, params: Optional[Tuple] = None) -> List[Dict[str, Any]]:
@@ -305,7 +334,7 @@ class DatabaseClass:
         Note: This doesn't include automatic retry logic. Use get_cursor() context manager for better error handling.
         """
         self._ensure_connection()
-        return self.connection.cursor()
+        return self.connection.cursor(buffered=True)
     
     def get_raw_connection(self):
         """
@@ -327,6 +356,19 @@ class DatabaseClass:
                 self.connection = None
         elif self.connection and not self._should_close_on_exit:
             logger.debug(f"Connection returned to pool for thread {self.connection_id}")
+
+    def _clear_unread_results(self) -> None:
+        """Clear any unread results from the connection"""
+        if self.connection:
+            try:
+                self.connection.consume_results()
+            except Exception:
+                # If consume_results fails, try to create and close a cursor
+                try:
+                    cursor = self.connection.cursor()
+                    cursor.close()
+                except Exception:
+                    pass
 
     def __enter__(self):
         """Context manager entry"""

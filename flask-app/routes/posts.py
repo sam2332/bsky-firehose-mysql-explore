@@ -31,7 +31,17 @@ def register_routes(app):
                 
                 # Text search
                 if search_query:
-                    if len(search_query) > 2:
+                    if search_query.startswith('#'):
+                        # Special handling for hashtag search: match the hashtag as a word
+                        hashtag = search_query
+                        # Use word boundary logic for LIKE (MySQL doesn't support true word boundaries, so use space, start, or end)
+                        where_conditions.append("text LIKE %s OR text LIKE %s OR text LIKE %s")
+                        params.extend([
+                            f"% {hashtag} %",   # surrounded by spaces
+                            f"{hashtag} %",      # at start
+                            f"% {hashtag}"       # at end
+                        ])
+                    elif len(search_query) > 2:
                         # Use FULLTEXT search for longer queries
                         where_conditions.append("MATCH(text) AGAINST(%s IN NATURAL LANGUAGE MODE)")
                         params.append(search_query)

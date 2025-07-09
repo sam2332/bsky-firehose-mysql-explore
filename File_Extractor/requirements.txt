@@ -1,0 +1,5 @@
+atproto>=0.0.46
+atproto-client>=0.0.46
+atproto-firehose>=0.0.13
+mysql-connector-python>=8.0.33
+pathlib2>=2.3.7

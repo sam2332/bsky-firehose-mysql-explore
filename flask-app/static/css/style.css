@@ -194,22 +194,37 @@ body {
     color: #212529;
 }
 
+/* Modal z-index fixes */
+.modal {
+    z-index: 1050 !important;
+}
+
+.modal-backdrop {
+    z-index: 1040 !important;
+}
+
+.modal-dialog {
+    z-index: 1060 !important;
+}
+
+/* Ensure modal content is clickable */
+.modal-content {
+    position: relative;
+    z-index: 1061 !important;
+}
+
 .modal-header {
-    border-bottom: 1px solid #e9ecef;
-    border-radius: 0.5rem 0.5rem 0 0;
-    background-color: #fff;
-    color: #212529;
+    border-bottom: 1px solid #dee2e6;
+    padding: 1rem 1.5rem;
 }
 
 .modal-body {
-    background-color: #fff;
-    color: #212529;
+    padding: 1.5rem;
 }
 
 .modal-footer {
-    border-top: 1px solid #e9ecef;
-    border-radius: 0 0 0.5rem 0.5rem;
-    background-color: #fff;
+    border-top: 1px solid #dee2e6;
+    padding: 1rem 1.5rem;
 }
 
 .modal-title {
@@ -240,15 +255,6 @@ body {
 
 .modal .border {
     border-color: #dee2e6 !important;
-}
-
-/* Ensure modal is always on top and visible */
-.modal {
-    z-index: 1050;
-}
-
-.modal.show .modal-dialog {
-    transform: none;
 }
 
 /* Responsive adjustments */
@@ -437,8 +443,4 @@ body {
     border-left: 3px solid #dee2e6;
     padding-left: 0.5rem;
     margin-top: 0.5rem;
-}
-
-.political-phrases small {
-    color: #6c757d !important;
 }

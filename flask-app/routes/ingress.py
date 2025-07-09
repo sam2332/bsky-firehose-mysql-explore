@@ -45,90 +45,88 @@ def register_socket_routes(socketio):
     # Background task for broadcasting real-time data
     def background_ingress_monitor():
         """Background task to broadcast ingress data to all connected clients"""
-        # Create a shared database instance for this background task
-        db = get_shared_database_class()
-        
         while True:
             try:
-                # Get fresh ingress data using the shared database class
-                # Get current metrics
-                result = db.fetch_one('SELECT COUNT(*) as count FROM posts WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)')
-                posts_last_minute = result['count'] if result else 0
-                
-                result = db.fetch_one('SELECT COUNT(*) as count FROM posts WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)')
-                posts_last_5min = result['count'] if result else 0
-                
-                result = db.fetch_one('SELECT COUNT(*) as count FROM posts WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)')
-                posts_last_hour = result['count'] if result else 0
-                
-                result = db.fetch_one('SELECT COUNT(*) as count FROM posts WHERE DATE(saved_at) = CURDATE()')
-                posts_today = result['count'] if result else 0
-                
-                ingress_rate = posts_last_minute
-                
-                # 5-minute average for comparison
-                ingress_rate_5min_avg = posts_last_5min / 5.0 if posts_last_5min else 0
-                
-                # Get recent languages
-                recent_languages_results = db.fetch_all('''
-                    SELECT language, COUNT(*) as count 
-                    FROM posts 
-                    WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
-                    AND language IS NOT NULL 
-                    GROUP BY language 
-                    ORDER BY count DESC 
-                    LIMIT 5
-                ''')
-                recent_languages = [{'language': row['language'] or 'Unknown', 'count': row['count']} 
-                                for row in recent_languages_results]
-                
-                # Get active authors
-                active_authors_results = db.fetch_all('''
-                    SELECT author_handle, COUNT(*) as count 
-                    FROM posts 
-                    WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
-                    AND author_handle IS NOT NULL 
-                    GROUP BY author_handle 
-                    ORDER BY count DESC 
-                    LIMIT 5
-                ''')
-                top_active_authors = [{'handle': row['author_handle'], 'post_count': row['count'], 'display_name': ''} 
-                                    for row in active_authors_results]
-                
-                # Get most recent posts
-                recent_posts_results = db.fetch_all('''
-                    SELECT author_handle, text, saved_at, language
-                    FROM posts 
-                    ORDER BY saved_at DESC 
-                    LIMIT 5
-                ''')
-                recent_posts = []
-                for row in recent_posts_results:
-                    recent_posts.append({
-                        'author': row['author_handle'] or 'Unknown',
-                        'text': format_post_text(row['text'], 100),
-                        'saved_at': format_datetime(row['saved_at']),
-                        'language': row['language'] or 'Unknown'
-                    })
-                
-                # Broadcast data to all connected clients
-                socketio.emit('ingress_update', {
-                    'posts_per_minute': posts_last_minute,  # Actual posts in last minute
-                    'posts_per_minute_5min_avg': round(ingress_rate_5min_avg, 2),  # 5-minute average
-                    'posts_last_minute': posts_last_minute,
-                    'posts_last_5min': posts_last_5min,
-                    'posts_last_hour': posts_last_hour,
-                    'total_today': posts_today,
-                    'last_hour': posts_last_hour,
-                    'languages': recent_languages,
-                    'top_active': top_active_authors,
-                    'recent_posts': recent_posts,
-                    'timestamp': datetime.now().isoformat(),
-                    'db_write_rate': posts_last_minute,  # Use actual posts per minute
-                    'db_queue_size': get_did_queue_size(),  # Get DID queue size
-                    'db_usage_percent': get_disk_usage(),  # Get disk usage percentage
-                })
+                # Use a fresh database instance for each iteration to avoid unread results
+                with get_shared_database_class() as db:
+                    # Get current metrics
+                    result = db.fetch_one('SELECT COUNT(*) as count FROM posts WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)')
+                    posts_last_minute = result['count'] if result else 0
                     
+                    result = db.fetch_one('SELECT COUNT(*) as count FROM posts WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)')
+                    posts_last_5min = result['count'] if result else 0
+                    
+                    result = db.fetch_one('SELECT COUNT(*) as count FROM posts WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)')
+                    posts_last_hour = result['count'] if result else 0
+                    
+                    result = db.fetch_one('SELECT COUNT(*) as count FROM posts WHERE DATE(saved_at) = CURDATE()')
+                    posts_today = result['count'] if result else 0
+                    
+                    ingress_rate = posts_last_minute
+                    
+                    # 5-minute average for comparison
+                    ingress_rate_5min_avg = posts_last_5min / 5.0 if posts_last_5min else 0
+                    
+                    # Get recent languages
+                    recent_languages_results = db.fetch_all('''
+                        SELECT language, COUNT(*) as count 
+                        FROM posts 
+                        WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                        AND language IS NOT NULL 
+                        GROUP BY language 
+                        ORDER BY count DESC 
+                        LIMIT 5
+                    ''')
+                    recent_languages = [{'language': row['language'] or 'Unknown', 'count': row['count']} 
+                                    for row in recent_languages_results]
+                    
+                    # Get active authors
+                    active_authors_results = db.fetch_all('''
+                        SELECT author_handle, COUNT(*) as count 
+                        FROM posts 
+                        WHERE saved_at >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                        AND author_handle IS NOT NULL 
+                        GROUP BY author_handle 
+                        ORDER BY count DESC 
+                        LIMIT 5
+                    ''')
+                    top_active_authors = [{'handle': row['author_handle'], 'post_count': row['count'], 'display_name': ''} 
+                                        for row in active_authors_results]
+                    
+                    # Get most recent posts
+                    recent_posts_results = db.fetch_all('''
+                        SELECT author_handle, text, saved_at, language
+                        FROM posts 
+                        ORDER BY saved_at DESC 
+                        LIMIT 5
+                    ''')
+                    recent_posts = []
+                    for row in recent_posts_results:
+                        recent_posts.append({
+                            'author': row['author_handle'] or 'Unknown',
+                            'text': format_post_text(row['text'], 100),
+                            'saved_at': format_datetime(row['saved_at']),
+                            'language': row['language'] or 'Unknown'
+                        })
+                    
+                    # Broadcast data to all connected clients
+                    socketio.emit('ingress_update', {
+                        'posts_per_minute': posts_last_minute,  # Actual posts in last minute
+                        'posts_per_minute_5min_avg': round(ingress_rate_5min_avg, 2),  # 5-minute average
+                        'posts_last_minute': posts_last_minute,
+                        'posts_last_5min': posts_last_5min,
+                        'posts_last_hour': posts_last_hour,
+                        'total_today': posts_today,
+                        'last_hour': posts_last_hour,
+                        'languages': recent_languages,
+                        'top_active': top_active_authors,
+                        'recent_posts': recent_posts,
+                        'timestamp': datetime.now().isoformat(),
+                        'db_write_rate': posts_last_minute,  # Use actual posts per minute
+                        'db_queue_size': get_did_queue_size(),  # Get DID queue size
+                        'db_usage_percent': get_disk_usage(),  # Get disk usage percentage
+                    })
+                        
             except Exception as e:
                 print(f"Error in background monitor: {e}")
                 socketio.emit('error', {'message': str(e)})
