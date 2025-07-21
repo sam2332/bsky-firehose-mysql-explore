@@ -35,3 +35,6 @@ This project is a set of Python scripts and utilities for extracting, processing
 - Document any non-obvious logic inline with comments.
 - Try and keep files under 200 lines for readability.
 
+
+
+# YOU WILL NEVER EVER EVER RUN GIT COMMANDS.
